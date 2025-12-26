@@ -1,3 +1,8 @@
+import boto3
+
+iam = boto3.client("iam")
+users = iam.list_users()
+
 """Input: “Give me IAM data”
 Function: Looks at fake data, 
 
@@ -23,43 +28,6 @@ Policies:
 Can ask for users, roles, policies 
 
 """
-users = [
-    {"username" : "alice",
-     "userid" : "U12345",
-     "role" : "Admin",
-     "created":"2024-01-01"},
-     
-     {"username" : "bob",
-      "userid" : "U12346",
-      "role" : "ReadOnly",
-      "created":"2023-06-15"},
-      
-      {"username" : "carol",
-       "userid" : "U12347",
-       "role" : "Developer",
-       "created":"2023-12-10"}]
-
-roles = [
-    {"role" : "Admin",
-     "permissions" : ["*"],
-     "description" : "Full access to services"},
-     
-     {"role" : "ReadOnly",
-     "permissions" : ["s3:GetObject", "ec2:DescribeInstances"],
-     "description" : "Read-only access"},
-      
-      {"role" : "Developer",
-     "permissions" : [" s3:*, lambda:InvokeFunction"],
-     "description" : "Developer access"},]
-
-policy = [
-    {"username" : "bob",
-     "policyname" : "ExtraS3Access",
-     "permissions" : ["s3:PutObject"]},
-     
-     {"username" : "carol ",
-     "policyname" : "LimitedEC2",
-     "permissions" : ["ec2:StartInstances, ec2:StopInstances"]},]
 
 
 #organize in structured JSON
@@ -67,14 +35,61 @@ policy = [
 
 def lambda_handle(event, context):
     #return all IAM as structured dictionary 
+    users_response = iam.list_users()
+    users = []
+
+    for i in users_response["Users"]:
+        users.append({
+            "username":i.get("UserName"),
+            "userid":i.get("UserId"),
+            "createdate":i.get("CreateDate"),
+            "arn":i.get("Arn"),
+            })
+    
+    roles_response = iam.list_roles()
+    roles = []
+
+    for x in roles_response["Roles"]:
+        roles.append({
+            "rolename":x.get("RoleName"),
+            "arn":x.get("Arn"),
+            "createdate":str(x.get("CreateDate"))
+        })
+    
+    policies =[]
+
+    for u in users:
+      attached_policies = iam.list_attached_user_policies(
+        UserName=u["username"]
+    )["AttachedPolicies"]
+
+      for p in attached_policies:
+        policies.append({
+            "username": u["username"],
+            "policyname": p.get("PolicyName"),
+            "policyarn": p.get("PolicyArn"),
+        })
+    for r in roles:
+       attached_policies = iam.list_attached_role_policies(
+        RoleName=r["rolename"]
+    )["AttachedPolicies"]
+
+       for p in attached_policies:
+             policies.append({
+            "rolename": r["rolename"],
+            "policyname": p.get("PolicyName"),
+            "policyarn": p.get("PolicyArn"),
+            })
+
     return {
         "Users": users,
         "Roles": roles,
-        "Policies": policy
-    }
+        "Policies": policies}
 
 #return mock data as dict
 
 
 response = lambda_handle({}, None)
 print(response)
+
+
