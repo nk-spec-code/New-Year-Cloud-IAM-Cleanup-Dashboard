@@ -1,4 +1,6 @@
 import boto3
+from risk_analysis import get_permissions, is_policy_high_risk
+
 
 iam = boto3.client("iam")
 users = iam.list_users()
@@ -57,29 +59,40 @@ def lambda_handle(event, context):
         })
     
     policies =[]
-
     for u in users:
-      attached_policies = iam.list_attached_user_policies(
-        UserName=u["username"]
-    )["AttachedPolicies"]
+        attached_policies = iam.list_attached_user_policies(UserName=u["username"])["AttachedPolicies"]
 
-      for p in attached_policies:
-        policies.append({
-            "username": u["username"],
-            "policyname": p.get("PolicyName"),
-            "policyarn": p.get("PolicyArn"),
-        })
-    for r in roles:
-       attached_policies = iam.list_attached_role_policies(
-        RoleName=r["rolename"]
-    )["AttachedPolicies"]
+        for p in attached_policies:
+            policy_arn = p.get("PolicyArn")
+            policy_doc = get_permissions(policy_arn)
+            high_risk = is_policy_high_risk(policy_doc)
 
-       for p in attached_policies:
-             policies.append({
-            "rolename": r["rolename"],
-            "policyname": p.get("PolicyName"),
-            "policyarn": p.get("PolicyArn"),
+            policies.append({
+                "attached_to": u["username"],
+                "type": "user",
+                "policyname": p.get("PolicyName"),
+                "policyarn": policy_arn,
+                "high_risk": high_risk,
+                "permissions": policy_doc
             })
+
+
+    for r in roles:
+        attached_policies = iam.list_attached_role_policies(
+            RoleName=r["rolename"])["AttachedPolicies"]
+
+        for p in attached_policies:
+            policy_arn = p.get("PolicyArn")
+            policy_doc = get_permissions(policy_arn)
+            high_risk = is_policy_high_risk(policy_doc)
+
+            policies.append({
+                "attached_to": r["rolename"],
+                "type": "role",
+                "policyname": p.get("PolicyName"),
+                "policyarn": policy_arn,
+                "high_risk": high_risk,
+                "permissions": policy_doc})
 
     return {
         "Users": users,
@@ -91,5 +104,8 @@ def lambda_handle(event, context):
 
 response = lambda_handle({}, None)
 print(response)
+
+
+
 
 
