@@ -1,111 +1,128 @@
 import boto3
-from risk_analysis import get_permissions, is_policy_high_risk
-
+import json
 
 iam = boto3.client("iam")
-users = iam.list_users()
 
-"""Input: “Give me IAM data”
-Function: Looks at fake data, 
+def get_permissions(policy_arn):
+    version = iam.get_policy(PolicyArn=policy_arn)["Policy"]["DefaultVersionId"]
+    return iam.get_policy_version(
+        PolicyArn=policy_arn,
+        VersionId=version
+    )["PolicyVersion"]["Document"]
 
-list of users list_users()
-list of roles list_roles()
-policies attached to a role
-full JSON of a policy get_policy()
+def classify_policy_risk(policy_name, policy_doc):
+    statements = policy_doc.get("Statement", [])
+    if not isinstance(statements, list):
+        statements = [statements]
 
+    for s in statements:
+        action = s.get("Action", [])
+        resource = s.get("Resource", [])
+        if action == "*" or resource == "*":
+            return "HIGH"
+        if isinstance(action, list) and any(a == "*" or a.endswith(":*") for a in action):
+            return "HIGH"
 
-Output: Returns structured JSON
+    if "FullAccess" in policy_name or "ReadOnly" in policy_name:
+        return "MEDIUM"
 
-Users:
-  - UserName
-  - Role(s)
-  - Policies
-Roles:
-  - RoleName
-  - Policies
-Policies:
-  - PolicyName
-  - Permissions
+    return "LOW"
 
-Can ask for users, roles, policies 
+def recommend_least_privilege(policy_doc):
+    statements = policy_doc.get("Statement", [])
+    if not isinstance(statements, list):
+        statements = [statements]
 
-"""
+    suggestions = []
 
+    for s in statements:
+        actions = s.get("Action", [])
+        resources = s.get("Resource", [])
+        if isinstance(actions, str):
+            actions = [actions]
+        if isinstance(resources, str):
+            resources = [resources]
 
-#organize in structured JSON
-#call function 
+        for action in actions:
+            if action == "*" or action.endswith(":*"):
+                suggestions.append(
+                    f"Restrict '{action}' to specific actions and resources {resources}"
+                )
 
-def lambda_handle(event, context):
-    #return all IAM as structured dictionary 
-    users_response = iam.list_users()
-    users = []
+    return suggestions
 
-    for i in users_response["Users"]:
-        users.append({
-            "username":i.get("UserName"),
-            "userid":i.get("UserId"),
-            "createdate":i.get("CreateDate"),
-            "arn":i.get("Arn"),
-            })
-    
-    roles_response = iam.list_roles()
-    roles = []
+def lambda_handler(event, context):
+    users_data = []
+    roles_data = []
+    policies = []
 
-    for x in roles_response["Roles"]:
-        roles.append({
-            "rolename":x.get("RoleName"),
-            "arn":x.get("Arn"),
-            "createdate":str(x.get("CreateDate"))
-        })
-    
-    policies =[]
+    users = iam.list_users()["Users"]
+    roles = iam.list_roles()["Roles"]
+
     for u in users:
-        attached_policies = iam.list_attached_user_policies(UserName=u["username"])["AttachedPolicies"]
+        attached = iam.list_attached_user_policies(UserName=u["UserName"])["AttachedPolicies"]
+        unused = len(attached) == 0
 
-        for p in attached_policies:
-            policy_arn = p.get("PolicyArn")
-            policy_doc = get_permissions(policy_arn)
-            high_risk = is_policy_high_risk(policy_doc)
+        users_data.append({
+            "username": u["UserName"],
+            "createdate": u["CreateDate"].isoformat(),
+            "unused": unused
+        })
+
+        for p in attached:
+            policy_doc = get_permissions(p["PolicyArn"])
+            risk = classify_policy_risk(p["PolicyName"], policy_doc)
+            recommendations = recommend_least_privilege(policy_doc)
 
             policies.append({
-                "attached_to": u["username"],
+                "attached_to": u["UserName"],
                 "type": "user",
-                "policyname": p.get("PolicyName"),
-                "policyarn": policy_arn,
-                "high_risk": high_risk,
-                "permissions": policy_doc
+                "policyname": p["PolicyName"],
+                "policyarn": p["PolicyArn"],
+                "risk_level": risk,
+                "high_risk": risk == "HIGH",
+                "recommendations": recommendations
             })
-
 
     for r in roles:
-        attached_policies = iam.list_attached_role_policies(
-            RoleName=r["rolename"])["AttachedPolicies"]
+        attached = iam.list_attached_role_policies(RoleName=r["RoleName"])["AttachedPolicies"]
+        unused = len(attached) == 0
 
-        for p in attached_policies:
-            policy_arn = p.get("PolicyArn")
-            policy_doc = get_permissions(policy_arn)
-            high_risk = is_policy_high_risk(policy_doc)
+        roles_data.append({
+            "rolename": r["RoleName"],
+            "createdate": r["CreateDate"].isoformat(),
+            "unused": unused
+        })
+
+        for p in attached:
+            policy_doc = get_permissions(p["PolicyArn"])
+            risk = classify_policy_risk(p["PolicyName"], policy_doc)
+            recommendations = recommend_least_privilege(policy_doc)
 
             policies.append({
-                "attached_to": r["rolename"],
+                "attached_to": r["RoleName"],
                 "type": "role",
-                "policyname": p.get("PolicyName"),
-                "policyarn": policy_arn,
-                "high_risk": high_risk,
-                "permissions": policy_doc})
+                "policyname": p["PolicyName"],
+                "policyarn": p["PolicyArn"],
+                "risk_level": risk,
+                "high_risk": risk == "HIGH",
+                "recommendations": recommendations
+            })
+
+    response = {
+        "Users": users_data,
+        "Roles": roles_data,
+        "Policies": policies,
+        "CleanupSummary": {
+            "unused_users": [u["username"] for u in users_data if u["unused"]],
+            "unused_roles": [r["rolename"] for r in roles_data if r["unused"]]
+        }
+    }
 
     return {
-        "Users": users,
-        "Roles": roles,
-        "Policies": policies}
-
-#return mock data as dict
-
-
-response = lambda_handle({}, None)
-print(response)
-
-
-
-
-
+        "statusCode": 200,
+        "headers": {
+            "Access-Control-Allow-Origin": "*"
+        },
+        "body": json.dumps(response)
+    }

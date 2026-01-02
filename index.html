@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>AWS IAM Risk Dashboard</title>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+<style>
+body {
+    font-family: Inter, Arial, sans-serif;
+    background: #f6f7fb;
+    margin: 20px;
+}
+h1 { margin-bottom: 5px; }
+.subtitle { color: #555; margin-bottom: 20px; }
+
+.cards {
+    display: flex;
+    gap: 15px;
+    margin-bottom: 20px;
+}
+.card {
+    background: white;
+    padding: 15px;
+    border-radius: 10px;
+    box-shadow: 0 4px 10px rgba(0,0,0,0.05);
+    flex: 1;
+}
+.card h3 { margin: 0 0 5px; }
+
+.controls {
+    margin: 20px 0;
+}
+select, input {
+    padding: 8px;
+    margin-right: 10px;
+}
+
+table {
+    width: 100%;
+    border-collapse: collapse;
+    background: white;
+    border-radius: 10px;
+    overflow: hidden;
+}
+th, td {
+    padding: 10px;
+    border-bottom: 1px solid #eee;
+}
+th {
+    background: #1f2937;
+    color: white;
+}
+
+.badge {
+    padding: 4px 8px;
+    border-radius: 6px;
+    font-size: 0.8em;
+    color: white;
+}
+.HIGH { background: #dc2626; }
+.MEDIUM { background: #f59e0b; }
+.LOW { background: #16a34a; }
+
+.reco {
+    font-size: 0.85em;
+    color: #b91c1c;
+}
+</style>
+</head>
+
+<body>
+
+<h1>AWS IAM Risk Dashboard</h1>
+<div class="subtitle">Least-Privilege Analysis & Cleanup Recommendations</div>
+
+<div class="cards">
+    <div class="card">
+        <h3 id="highCount">0</h3>
+        High-Risk Policies
+    </div>
+    <div class="card">
+        <h3 id="unusedUsers">0</h3>
+        Unused Users
+    </div>
+    <div class="card">
+        <h3 id="unusedRoles">0</h3>
+        Unused Roles
+    </div>
+</div>
+
+<canvas id="riskChart" height="120"></canvas>
+
+<div class="controls">
+    <select id="typeFilter">
+        <option value="all">All</option>
+        <option value="user">Users only</option>
+        <option value="role">Roles only</option>
+    </select>
+
+    <select id="riskFilter">
+        <option value="all">All Risks</option>
+        <option value="HIGH">High Risk</option>
+    </select>
+
+    <input id="searchBox" placeholder="Search user / role / policy">
+</div>
+
+<table>
+<thead>
+<tr>
+    <th>Attached To</th>
+    <th>Type</th>
+    <th>Policy</th>
+    <th>Risk</th>
+    <th>Recommendations</th>
+</tr>
+</thead>
+<tbody id="policyTable"></tbody>
+</table>
+
+<script src="config.js"></script>
+
+<script>
+let policies = [];
+
+fetch(API_URL)
+.then(r => r.json())
+.then(data => {
+    policies = data.Policies;
+
+    document.getElementById("highCount").innerText =
+        policies.filter(p => p.risk_level === "HIGH").length;
+
+    document.getElementById("unusedUsers").innerText =
+        data.CleanupSummary.unused_users.length;
+
+    document.getElementById("unusedRoles").innerText =
+        data.CleanupSummary.unused_roles.length;
+
+    renderChart(policies);
+    renderTable();
+});
+
+function renderChart(policies) {
+    const counts = { HIGH:0, MEDIUM:0, LOW:0 };
+    policies.forEach(p => counts[p.risk_level]++);
+
+    new Chart(document.getElementById("riskChart"), {
+        type: "doughnut",
+        data: {
+            labels: ["High", "Medium", "Low"],
+            datasets: [{
+                data: [counts.HIGH, counts.MEDIUM, counts.LOW]
+            }]
+        }
+    });
+}
+
+function renderTable() {
+    const tbody = document.getElementById("policyTable");
+    tbody.innerHTML = "";
+
+    const type = document.getElementById("typeFilter").value;
+    const risk = document.getElementById("riskFilter").value;
+    const search = document.getElementById("searchBox").value.toLowerCase();
+
+    policies
+    .filter(p => type === "all" || p.type === type)
+    .filter(p => risk === "all" || p.risk_level === risk)
+    .filter(p =>
+        p.attached_to.toLowerCase().includes(search) ||
+        p.policyname.toLowerCase().includes(search)
+    )
+    .forEach(p => {
+        const row = tbody.insertRow();
+        row.insertCell().innerText = p.attached_to;
+        row.insertCell().innerText = p.type;
+        row.insertCell().innerText = p.policyname;
+
+        const badge = document.createElement("span");
+        badge.className = `badge ${p.risk_level}`;
+        badge.innerText = p.risk_level;
+        row.insertCell().appendChild(badge);
+
+        row.insertCell().innerHTML =
+            p.recommendations.length
+            ? `<div class="reco">${p.recommendations.join("<br>")}</div>`
+            : "-";
+    });
+}
+
+document.getElementById("typeFilter").onchange = renderTable;
+document.getElementById("riskFilter").onchange = renderTable;
+document.getElementById("searchBox").oninput = renderTable;
+</script>
+
+</body>
+</html>
