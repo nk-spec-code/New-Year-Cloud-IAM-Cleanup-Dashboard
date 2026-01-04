@@ -7,7 +7,7 @@ A serverless security dashboard that scans an AWS account’s IAM configuration 
 - Unused users and roles  
 - Least-privilege recommendations  
 
-This is revealed through a secure IAM API and on a browser-based dashboard.
+This is revealed through a secure IAM API and is displayed on a browser-based dashboard.
 
 
 
