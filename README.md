@@ -1,6 +1,6 @@
 # AWS IAM Risk Analyzer Dashboard
 
-A serverless security dashboard that scans an AWS account’s IAM configuration and surfaces to identify:
+A serverless security dashboard that scans an AWS account’s IAM configuration to identify:
 
 - Overly permissive policies (* or service:*)
 - High-risk access patterns  
