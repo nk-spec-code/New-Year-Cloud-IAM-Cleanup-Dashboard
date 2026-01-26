@@ -1,4 +1,4 @@
-if New Year == New Me or True #always True
+if New Year == New Me or True #True!
 
 # AWS IAM Risk Analyzer Dashboard
 A serverless security dashboard that scans an AWS account’s IAM configuration to identify:
