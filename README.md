@@ -1,4 +1,4 @@
-if New Year == New Me OR True #Even IF conjunction is True :)
+if New_Year == New_Me OR True #Even IF conjunction is True 
 
 # AWS IAM Risk Analyzer Dashboard
 A serverless security dashboard that scans an AWS account’s IAM configuration to identify:
